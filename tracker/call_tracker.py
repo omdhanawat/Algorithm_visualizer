@@ -35,3 +35,17 @@ class CallTracker:
         self.events.clear()
         self.stack.clear()
         self.call_id = 0
+
+    def record_action(self, action_type, details):
+        self.events.append({
+            "type": "action",
+            "action": action_type,
+            "details": details
+        })
+
+    def record_phase(self, phase, details=None):
+        self.events.append({
+            "type": "phase",
+            "phase": phase,
+            "details": details or {}
+        })
