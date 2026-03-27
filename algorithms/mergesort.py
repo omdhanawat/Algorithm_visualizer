@@ -15,6 +15,10 @@ def tracked_mergesort(arr):
     left_part = arr[:mid]
     right_part = arr[mid:]
 
+    tracker.record_phase("array_update", {
+        "array": arr.copy()
+    })
+
     # tracker.record_action("split", {"left": left_part, "right": right_part})
     tracker.record_phase("divide")
     tracker.record_action("state", {"array": arr.copy(), "stage": "current"})
@@ -25,6 +29,10 @@ def tracked_mergesort(arr):
     tracker.record_action("merge_start", {"left": left, "right": right})
 
     merged = merge(left, right)
+
+    tracker.record_phase("array_update", {
+        "array": merged.copy()
+    })
 
     # tracker.record_action("merge_result", {"result": merged})
     tracker.record_phase("combine", {"result": merged})

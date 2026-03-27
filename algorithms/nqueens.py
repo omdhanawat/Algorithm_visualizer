@@ -4,7 +4,7 @@ tracker = CallTracker()
 
 def solve_nqueens(n, tracker):
 
-    board = [-1] * n   # board[row] = column
+    board = [-1] * n   
 
     def is_safe(row, col):
         for r in range(row):
@@ -27,7 +27,11 @@ def solve_nqueens(n, tracker):
 
         for col in range(n):
 
-            tracker.record_phase("explore", {"row": row, "col": col})
+            tracker.record_phase("explore", {
+                "row": row, 
+                "col": col,
+                "board": board.copy()
+                })
 
             if is_safe(row, col):
 
@@ -52,7 +56,11 @@ def solve_nqueens(n, tracker):
                 })
 
             else:
-                tracker.record_phase("invalid", {"row": row, "col": col})
+                tracker.record_phase("invalid", {
+                    "row": row,
+                    "col": col,
+                    "board": board.copy()
+                    })
 
         tracker.record_return(call_id, None)
         return False
