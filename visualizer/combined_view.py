@@ -1,18 +1,28 @@
 import matplotlib.pyplot as plt
 import networkx as nx
-from algorithms.recurrence_info import RECURRENCES, DP_FORMULAS
+import math
+from algorithms.recurrence_info import RECURRENCES, DP_FORMULAS, ALGO_METADATA
 from matplotlib.gridspec import GridSpec
+from matplotlib.patches import Patch
 
 def animate_execution(events, tracker=None):
+    if not events: return
     
     has_dp = any(
         e.get("type") == "phase" and ("table" in e.get("details", {}) or "dp" in e.get("details", {}))
-        # e.get("phase") in ["dp_update", "update", "skip"]
         for e in events
     )
     is_dp_only = events[0]["func"] in ["knapsack", "lis", "lcs"]
+    is_fw = events[0]["func"] == "floyd_warshall"
+    is_dijkstra = events[0]["func"] == "dijkstra"
+    is_kruskal = events[0]["func"] == "kruskal"
+    is_prim = events[0]["func"] == "prim"
+    is_fk = events[0]["func"] == "fractionalKnapsack"
+    is_tsp = events[0]["func"] == "tsp"
+
+    
     fig = plt.figure(figsize=(13,7))
-    dp_table = None   # ← ALWAYS defined
+    dp_table = None
     dp_cell = None
     ax_info = None
     dp_dependencies = []
@@ -22,710 +32,570 @@ def animate_execution(events, tracker=None):
     is_obst = events[0]["func"] == "obst"
     current_cell = None
     invalid_cell = None
-   
+    active_edge = None
+    dijkstra_pq = []
+
+    # MST specific (Kruskal/Prim)
+    mst_edges = []
+    mst_active = None
+    mst_reject = None
+    mst_parent = []
+    kruskal_sorted = []
+
+    # Fractional Knapsack specific
+    fk_items = []
+    fk_capacity = 0
+    fk_current_w = 0
+    fk_selected = []
+    fk_active_id = None
+    
+    # TSP specific
+    tsp_n = 0
+    tsp_coords = []
+    tsp_path = []
+    tsp_cost = 0
+    tsp_best_path = []
+    tsp_best_cost = float('inf')
+    tsp_active_id = -1
+
     
     if is_nqueens:
-
-        gs = GridSpec(
-            2,2,
-            width_ratios=[1,2.8],
-            height_ratios=[1,1],
-            figure=fig
-        )
-
+        gs = GridSpec(2,2, width_ratios=[1,2.8], height_ratios=[1,1], figure=fig)
         ax_stack = fig.add_subplot(gs[0,0])
         ax_board = fig.add_subplot(gs[1,0])
         ax_tree = fig.add_subplot(gs[:,1])
         ax_dp = None
-
+        ax_info = ax_board # Reuse board area for messages if needed, but we'll add text on top
     elif is_dp_only and not is_obst:
-        gs = GridSpec(1,2, width_ratios=[2,1], figure=fig)
-        ax_dp = fig.add_subplot(gs[0,0])
-        ax_info = fig.add_subplot(gs[0,1])
+        # Knapsack, LCS, LIS: Table (Left) + Info (Right)
+        gs = GridSpec(2, 2, width_ratios=[2, 1], height_ratios=[1, 1], figure=fig)
+        ax_dp = fig.add_subplot(gs[:, 0])
+        ax_info = fig.add_subplot(gs[:, 1])
         ax_dp.set_facecolor("#fafafa")
         ax_stack = None
         ax_tree = None
-        
-    elif is_obst:
-        gs = GridSpec(2, 2, width_ratios=[1.2, 1], height_ratios=[1.5, 1], figure=fig)
+    elif is_kruskal:
+        # Kruskal: Graph (Left) + Info (Right)
+        gs = GridSpec(1, 2, width_ratios=[2, 1], figure=fig)
+        ax_tree = fig.add_subplot(gs[0, 0])
+        ax_info = fig.add_subplot(gs[0, 1])
+        ax_dp = None
+        ax_stack = None
+    elif is_fw or is_dijkstra or is_prim:
+        # Graph + Table: Graph (Left) + Table/Info (Right)
+        gs = GridSpec(2, 2, width_ratios=[1.8, 1], height_ratios=[1, 1], figure=fig)
+        ax_tree = fig.add_subplot(gs[:, 0])
+        ax_dp = fig.add_subplot(gs[0, 1])
+        ax_info = fig.add_subplot(gs[1, 1])
+        ax_stack = None
+        ax_dp.set_facecolor("#fafafa")
+    elif is_obst or (has_dp and not is_dp_only):
+        # Recursive DP: Table (Left) + Tree/Info (Right)
+        gs = GridSpec(2, 2, width_ratios=[1, 1.2], height_ratios=[1.2, 1], figure=fig)
         ax_dp = fig.add_subplot(gs[:, 0])
         ax_tree = fig.add_subplot(gs[0, 1])
         ax_info = fig.add_subplot(gs[1, 1])
         ax_stack = None
         ax_dp.set_facecolor("#fafafa")
-
-    elif has_dp and not is_dp_only:
-        gs = GridSpec(
-            2,2,
-            width_ratios=[1,2.2],
-            height_ratios=[1,1],
-            figure=fig
-        )
-
-        ax_stack = fig.add_subplot(gs[0,0])
-        ax_dp = fig.add_subplot(gs[1,0])
-        ax_tree = fig.add_subplot(gs[:,1])
-
+    elif is_fk:
+        # Fractional Knapsack: Table (Left) + Meter (Top Right) + Info (Bottom Right)
+        gs = GridSpec(2, 2, width_ratios=[1.5, 1], height_ratios=[0.6, 1.4], figure=fig)
+        ax_dp = fig.add_subplot(gs[:, 0]) # Table
+        ax_stack = fig.add_subplot(gs[0, 1]) # Meter
+        ax_info = fig.add_subplot(gs[1, 1]) # Text
+        ax_tree = None
+    elif is_tsp:
+        # TSP: Graph (Left) + Info (Right)
+        gs = GridSpec(2, 2, width_ratios=[1.5, 1], height_ratios=[1, 1], figure=fig)
+        ax_tree = fig.add_subplot(gs[:, 0]) # Graph
+        ax_dp = None
+        ax_stack = None
+        ax_info = fig.add_subplot(gs[:, 1]) # Info
     else:
-
-        gs = GridSpec(1,2,width_ratios=[1,2.2],figure=fig)
-
-        ax_stack = fig.add_subplot(gs[0,0])
-        ax_tree = fig.add_subplot(gs[0,1])
+        # Generic Recursion: Stack (Left) + Tree (Right) + Info (Bottom)
+        gs = GridSpec(2, 2, width_ratios=[1, 2], height_ratios=[2, 1], figure=fig)
+        ax_stack = fig.add_subplot(gs[0, 0])
+        ax_tree = fig.add_subplot(gs[0, 1])
+        ax_info = fig.add_subplot(gs[1, :])
         ax_dp = None
 
     call_id_stack = []
     node_result = {}
     node_original = {}
     stack = []
-    G = nx.DiGraph()
+    # G = nx.DiGraph() # Initialized later
     labels = {}
     node_status = {}
 
-    # start at first CALL event
-    step_index = next(
-        (i for i, e in enumerate(events) if e["type"] == "call"),
-        0
-    )
-
+    step_index = next((i for i, e in enumerate(events) if e["type"] == "call"), 0)
     algo_name = events[0]["func"] if events else ""
     recurrence_text = RECURRENCES.get(algo_name, "")
     dp_formula = DP_FORMULAS.get(algo_name, "")
 
     bottom_text = []
-    if recurrence_text:
-        bottom_text.append(f"Recurrence: {recurrence_text}")
+    if recurrence_text: bottom_text.append(f"Logic: {recurrence_text}")
     if dp_formula:
-        # separate max function newlines with pipes to make it single/clean lines
-        clean_formula = dp_formula.replace("\n", "  |  ")
+        clean_formula = dp_formula.replace("\n", " | ")
         bottom_text.append(f"Formula: {clean_formula}")
     
     if bottom_text:
-        fig.text(
-            0.5, 0.02,
-            "\n".join(bottom_text),
-            ha="center", va="bottom", fontsize=11, color="blue", wrap=True
-        )
+        fig.text(0.5, 0.02, "\n".join(bottom_text), ha="center", va="bottom", fontsize=10, color="#1565c0", wrap=True)
         fig.subplots_adjust(bottom=0.15)
 
     def draw_step():
-        nonlocal stack, G, labels, node_status, dp_table, board_state, current_cell, invalid_cell, ax_info, dp_dependencies, dp_cell
+        nonlocal stack, labels, node_status, dp_table, board_state, current_cell, invalid_cell, ax_info, dp_dependencies, dp_cell, active_edge, dijkstra_pq
+        nonlocal mst_edges, mst_active, mst_reject, mst_parent, kruskal_sorted
+        nonlocal fk_items, fk_capacity, fk_current_w, fk_selected, fk_active_id
+        nonlocal tsp_n, tsp_coords, tsp_path, tsp_cost, tsp_best_path, tsp_best_cost, tsp_active_id
+
+        tsp_n = 0
+        tsp_coords = []
+        tsp_path = []
+        tsp_cost = 0
+        tsp_best_path = []
+        tsp_best_cost = float('inf')
+        tsp_active_id = -1
+
 
         call_id_stack.clear()
-        # dp_cell = None
-        if ax_stack:
-            ax_stack.clear()
-        if ax_tree:
-            ax_tree.clear()
+        if ax_stack: ax_stack.clear()
+        if ax_tree: ax_tree.clear()
+        if ax_dp: ax_dp.clear()
+        if ax_info: ax_info.clear()
 
-        # ---------- DRAW FORMULA (FIXED POSITION) ----------
-        if "lis" in algo_name.lower() and ax_tree is not None:
-            ax_tree.text(
-                0.5, 1.05,
-                "dp[i] = 1 + max(dp[j]) where j < i and arr[j] < arr[i]\nelse dp[i] = 1",
-                ha="center",
-                fontsize=11,
-                color="blue",
-                transform=ax_tree.transAxes
-            )
+        def get_dp_table(det):
+            return det.get("table", det.get("dp"))
 
         stack = []
-        G = nx.DiGraph()
+        G = nx.Graph() if (is_kruskal or is_prim) else nx.DiGraph()
         labels = {}
         node_status = {}
-
+        mst_edges = []
         message = ""
+        phase = None
         active_call_id = None
 
         for i in range(step_index + 1):
             event = events[i]
-
-            # ---------- CALL ----------
             if event["type"] == "call":
-                args = list(event["args"].values())[0]
-                if event['func'] == "nQueens":
-                    func = f"row={args}"
-                else:
-                    func = f"{event['func']}({args})"
-
+                args = list(event["args"].values())[0] if event["args"] else ""
+                func = f"row={args}" if event['func'] == "nQueens" else f"{event['func']}({args})"
                 stack.append(func)
                 call_id_stack.append(event["id"])
                 active_call_id = call_id_stack[-1]
-
                 G.add_node(event["id"])
-
-                if event["func"] == "binarySearch":
-                    low = event["args"]["low"]
-                    high = event["args"]["high"]
-                    labels[event["id"]] = f"[{low}, {high}]"
-                else:
-                    labels[event["id"]] = func
-   
+                labels[event["id"]] = f"[{event['args']['low']}, {event['args']['high']}]" if event["func"] == "binarySearch" else func
                 node_original[event["id"]] = args
                 node_result[event["id"]] = None
                 node_status[event["id"]] = "normal"
-
-                if event["parent"] is not None:
-                    G.add_edge(event["parent"], event["id"])
-
+                if event["parent"] is not None: G.add_edge(event["parent"], event["id"])
                 message = f"Calling {func}"
 
-            # ---------- RETURN ----------
             elif event["type"] == "return":
-
                 call_id = event["id"]
                 result = event["value"]
-
-                if stack:
-                    stack.pop()
-
-                if call_id_stack:
-                    call_id_stack.pop()
+                if stack: stack.pop()
+                if call_id_stack: call_id_stack.pop()
                 active_call_id = call_id_stack[-1] if call_id_stack else None
-
                 node_status[call_id] = "done"
                 node_result[call_id] = result
+                message = f"Return -> {result}"
 
-                message = f"Return → {result}"
-            # ---------- ACTION ----------
             elif event["type"] == "phase":
-
                 details = event.get("details", {})
-
-                if "table" in details:
-                    dp_table = details["table"]
-                elif "dp" in details:
-                    dp_table = details["dp"]
-
+                dp_table = details.get("table", details.get("dp", dp_table))
                 phase = event["phase"]
+                if active_call_id is None and not (is_kruskal or is_prim) and phase != "init_graph": continue
 
-                if active_call_id is None:
-                    continue
+                if phase == "init_graph":
+                    message = "Initializing Graph Representation"
+                    if algo_name in ["floyd_warshall", "dijkstra", "kruskal", "prim"]:
+                        G.clear()
+                        V = details.get("V", 0)
+                        edges = details.get("edges", [])
+                        for v in range(V):
+                            G.add_node(v); labels[v] = str(v); node_status[v] = "normal"
+                        for u, v, w in edges:
+                            G.add_edge(u, v, weight=w)
+                    if is_kruskal or is_prim: mst_parent = details.get("parent", [])
 
-                if phase == "divide":
+                elif phase == "sort_edges" and is_kruskal:
+                    kruskal_sorted = details["sorted"]
+                    mst_parent = details["parent"]
+                    sorted_str = "\n".join([f"({u},{v}) w={w}" for u,v,w in kruskal_sorted[:5]])
+                    if len(kruskal_sorted) > 5: sorted_str += "\n..."
+                    message = f"SORTING EDGES (Greedy Choice):\n{sorted_str}"
+
+                elif phase == "check_edge" and (is_kruskal or is_prim):
+                    u, v, w = details["u"], details["v"], details["w"]
+                    mst_active = (u,v); mst_reject = None; mst_parent = details["parent"]; mst_edges = details.get("mst", [])
+                    message = f"CHECKING EDGE: {u} -- {v} (weight {w})\nDoes this form a cycle (Kruskal) or min weight (Prim)?"
+
+                elif phase == "accept_edge" and is_kruskal:
+                    u, v, w = details["u"], details["v"], details["w"]
+                    mst_active = None; mst_reject = None; mst_parent = details["parent"]; mst_edges = details["mst"]
+                    message = f"ACCEPTED: {u} -- {v}\nMerging components using Union-Find."
+
+                elif phase == "reject_edge" and is_kruskal:
+                    u, v, w = details["u"], details["v"], details["w"]
+                    mst_active = None; mst_reject = (u,v); mst_parent = details["parent"]; mst_edges = details["mst"]
+                    message = f"REJECTED: {u} -- {v}\nCycle Detected! Already in same component."
+
+                elif phase == "mst_complete":
+                    mst_parent = details["parent"]; mst_edges = details.get("mst", []); mst_active = None; mst_reject = None
+                    message = f"MST DONE!\nTotal weight: {details.get('mst_weight', details.get('weight', '?'))}"
+
+                elif phase == "visit_node":
+                    if is_prim:
+                        u = details["u"]; mst_active = None; dijkstra_pq = details.get("pq", [])
+                        message = f"VISITING NODE: {u}\nShortest edge to MST: {details.get('weight', 0)}"
+                        mst_parent = details.get("parent", [])
+                        # Mark visited for coloring
+                        for i, v_s in enumerate(details["visited"]): node_status[i] = "done" if v_s else "normal"
+                        node_status[u] = "explore"
+                        # Reconstruct MST edges from parent array for visited nodes
+                        mst_edges = []
+                        for i, p in enumerate(mst_parent):
+                            if p is not None and details["visited"][i]: mst_edges.append((i, p))
+                    elif is_dijkstra:
+                        u = details["u"]; active_edge = None; dijkstra_pq = details.get("pq", [])
+                        message = f"VISITING NODE: {u}\nMin dist in PQ: {details['dist_u']}"
+                        for i, v_s in enumerate(details["visited"]): node_status[i] = "done" if v_s else "normal"
+                        node_status[u] = "explore"
+                
+                elif is_tsp:
+                    tsp_n = details.get("n", tsp_n)
+                    tsp_coords = details.get("coords", tsp_coords)
+                    tsp_path = details.get("current_path", tsp_path)
+                    tsp_cost = details.get("current_cost", tsp_cost)
+                    tsp_best_path = details.get("best_path", tsp_best_path)
+                    tsp_best_cost = details.get("best_cost", tsp_best_cost)
+                    tsp_active_id = details.get("active_id", tsp_active_id)
+                    
+                    p_str = " -> ".join(map(str, tsp_path))
+                    message = f"PHASE: {phase.upper()}\nPath: [{p_str}]\nCost: {tsp_cost:.1f}\nBest: {tsp_best_cost:.1f}"
+
+                elif phase == "relax_edge":
+                    if is_prim:
+                        u, v, w = details["u"], details["v"], details["w"]
+                        active_edge = (u,v); dijkstra_pq = details.get("pq", [])
+                        message = f"RELAXING EDGE: {u} -- {v}\nWeight {w} < current dist[{v}] ({details['dist_v']})?"
+                        node_status[v] = "split"
+                    elif is_dijkstra:
+                        u, v, w = details["u"], details["v"], details["w"]
+                        active_edge = (u,v); dijkstra_pq = details.get("pq", [])
+                        message = f"RELAXING: {u}->{v}\n{details['dist_u']} + {w} < {details['dist_v']}?"
+                        node_status[v] = "split"
+
+                elif phase == "update_dist":
+                    if is_prim:
+                        v, new_dist = details["v"], details["new_dist"]
+                        active_edge = None; dijkstra_pq = details.get("pq", [])
+                        message = f"✅ UPDATE! New edge to node {v} has weight {new_dist}"
+                        node_status[v] = "solution"
+                    elif is_dijkstra:
+                        v, new_dist = details["v"], details["new_dist"]
+                        active_edge = None; dijkstra_pq = details.get("pq", [])
+                        message = f"✅ UPDATE! New dist[{v}] = {new_dist}"; node_status[v] = "solution"
+
+                elif phase == "divide":
                     node_status[active_call_id] = "split"
-                    message = "Divide"
+                    message = "Dividing subproblem"
 
                 elif phase == "combine":
                     node_status[active_call_id] = "done"
-                    # node_result[active_call_id] = event["details"]["result"]
-                    message = f"Combine → {event['details']['result']}"
+                    message = f"Combining -> {details.get('result', '')}"
 
-                elif phase == "choose":
-                    node_status[active_call_id] = "split"
-                    message = "Choosing pivot"
-
-                elif phase == "memo_hit":
-                    node_status[active_call_id] = "cache"
-                    message = "DP reuse"
-
-                elif phase == "memo_store":
-                    node_status[active_call_id] = "done"
-                    message = "DP store"  
-
-                elif phase == "dp_update":
-                    details = event["details"]
-                    dp_table = details.get("table", dp_table)
-
-                    if isinstance(dp_table, dict) and "n" in details:
-                        dp_cell = (0, details["n"])
-                        message = f"Computed fib({details['n']}) = {dp_table[details['n']]}"  
+                elif phase == "explore" and is_nqueens:
+                        board_state = details["board"]
+                        current_cell = (details["row"], details["col"])
+                        message = f"Trying Col {details['col']} for Row {details['row']}"
                 
-                # elif phase == "array_update":
-                #     array_state = event["details"]["array"]
-                #     message = f"Array updated: {array_state}"
+                elif phase == "invalid" and is_nqueens:
+                    board_state = details["board"]
+                    invalid_cell = (details["row"], details["col"])
+                    message = f"❌ Conflict at ({details['row']},{details['col']})"
 
-                elif phase == "explore":
-                    board_state = event["details"]["board"]
-                    current_cell = (event["details"]["row"], event["details"]["col"])
-                    invalid_cell = None
-                    # node_status[active_call_id] = "explore"
-                    message = f"Trying column {event['details']['col']}"
+                elif phase == "consider_root" and is_obst:
+                    i,j,k = details['i'], details['j'], details['k']
+                    dp_cell = (i, j); dp_dependencies = [(i, k-1), (k+1, j)]
+                    message = f"Trying root k={k} for range [{i}..{j}]\nCost = {details['left']} + {details['right']} + {details['weight']} = {details['cost']}"
 
-                elif phase == "valid":
-                    node_status[active_call_id] = "split"
-                    message = "Valid placement"
-
-                elif phase == "invalid":
-                    board_state = event["details"]["board"]
-                    invalid_cell = (event["details"]["row"], event["details"]["col"])
-                    current_cell = None
-                    message = "Conflict detected"
-
-                elif phase == "backtrack":
-                    node_status[active_call_id] = "backtrack"
-                    message = "Backtracking"
-
-                elif phase == "solution":
-                    node_status[active_call_id] = "solution"
-                    message = "Solution found"
-
-                elif phase == "place":
-                    board_state = event["details"]["board"]
-                    current_cell = None
-                    invalid_cell = None
-                    message = "Placed Queen"
-                    
-                elif phase == "remove":
-                    board_state = event["details"]["board"]
-                    current_cell = None
-                    invalid_cell = None
-                    message = "Backtracking remove queen"
-                
-                elif phase == "consider_root":
-                    message = f"Testing root {event['details']['k']} for range [{event['details']['i']}, {event['details']['j']}]\nCost = {event['details']['cost']} (Optimal: {event['details']['best_so_far']})"
-
-                elif phase == "build_tree":
-                    node_id = event["details"]["id"]
-                    label = event["details"]["label"]
-                    parent = event["details"]["parent"]
-                    
-                    G.add_node(node_id)
-                    labels[node_id] = label
-                    node_status[node_id] = "solution"
-                    
-                    if parent is not None:
-                        G.add_edge(parent, node_id)
-                        
-                    message = f"Building Optimal Tree: Added Node {label}"
-
-                elif phase == "mid":
-                    message = f"Mid index = {event['details']['mid']} (value={event['details']['value']})"
-
-                elif phase == "found":
-                    message = f"Found at index {event['details']['index']}"
-
-                elif phase == "left":
-                    message = f"Move LEFT → high = {event['details']['new_high']}"
-
-                elif phase == "right":
-                    message = f"Move RIGHT → low = {event['details']['new_low']}"
-
-                elif phase == "consider":
-                    message = f"Checking item {event['details']['i']} at capacity {event['details']['w']}"
+                elif phase == "mid" and algo_name == "binarySearch":
+                    low, high, mid = details['low'], details['high'], details['mid']
+                    message = f"mid = ({low}+{high})//2 = {mid}\nValue = {details['value']}"
 
                 elif phase == "update":
-                    details = event["details"]
-
-                    # ---------- LCS ----------
-                    if "value" in details and "j" in details:
-                        dp_table = details["table"]
-                        dp_cell = (details["i"], details["j"])
-                        dp_dependencies = [
-                            (details["i"] - 1, details["j"]),
-                            (details["i"], details["j"] - 1),
-                            (details["i"]-1, details["j"]-1)
-                        ]
-                        message = f"dp[{details['i']}][{details['j']}] = {details['value']}"
-
-                    # ---------- KNAPSACK ----------
-                    elif "table" in details:
-                        dp_table = details["table"]
-                        i = details["i"]
-                        w = details["w"]
-
-                        dp_cell = (i,w)
-                        dp_dependencies = [
-                            (i - 1, w),
-                        ]
-                        
-                        if w - details["i"] >= 0:
-                            dp_dependencies.append((i-1, w - details["i"]))
-
-                        message = (
-                            f"Item {details['i']} at capacity {details['w']}\n"
-                            f"Include = {details['include']}\n"
-                            f"Exclude = {details['exclude']}\n"
-                            f"Chosen = {details['chosen']}"
-                        )
-                        # message = f"dp[{details['i']}][{details['w']}] = {details['chosen']}"
-
-                    # ---------- LIS ----------
-                    elif "dp" in details:
-                        dp_table = details["dp"]
-                        dp_cell = (0, details["i"])
-                        dp_dependencies = [(0, j) for j in range(details["i"])]
-                        message = (
-                            f"Updating dp[{details['i']}]\n"
-                            f"Longest increasing subsequence ending here = {dp_table[details['i']]}"
-                        )
-                        # message = f"dp[{details['i']}] = {dp_table[details['i']]}"
-                        
-                    # ---------- OBST ----------
-                    elif algo_name == "obst":
-                        dp_table = details["table"]
-                        dp_cell = (details["i"], details["j"])
-                        dp_dependencies = []
-                        message = f"cost[{details['i']}][{details['j']}] = {details['value']}"
-
-                    # ---------- FALLBACK ----------
-                    else:
-                        message = "DP update"
-
-                elif phase == "skip":
-                    message = f"Item too heavy → skip"
-                    dp_table = event["details"].get("table", dp_table)
-                    dp_cell = (event["details"]["i"], event["details"]["w"])
-
-                elif phase == "compare":
-                    details = event["details"]
-
-                    # ---------- LIS ----------
-                    if "a_i" in details:
-                        message = (
-                            f"Compare arr[{details['j']}] = {details['a_j']} "
-                            f"with arr[{details['i']}] = {details['a_i']}"
-                        )
-
-                    # ---------- LCS ----------
-                    elif "c1" in details:
-                        message = f"Compare '{details['c1']}' with '{details['c2']}'"
-
-                    # ---------- FALLBACK ----------
-                    else:
-                        message = "Comparing..."
+                    dp_table = get_dp_table(details)
+                    if algo_name == "knapsack" and "w" in details:
+                        i, w = details["i"], details["w"]; dp_cell = (i, w); dp_dependencies = [(i-1, w), (i-1, w-details.get("i_weight", 0))]
+                        message = f"DP UPDATE: (i={i}, w={w})\nMax: {details.get('chosen', 0)}"
+                    elif algo_name == "floyd_warshall":
+                        i,j,k = details["i"], details["j"], details["k"]; dp_cell=(i,j); dp_dependencies=[(i,k),(k,j)]
+                        message = f"FW UPDATE: dist[{i}][{j}] = {details['new_dist']}"; node_status[i] = "split"
                 
-                # ---------- DRAW STACK ----------
+                elif is_fk:
+                    fk_items = details.get("items", [])
+                    fk_capacity = details.get("W", fk_capacity)
+                    fk_current_w = fk_capacity - details.get("currentW", fk_capacity) if "currentW" in details else fk_current_w
+                    fk_selected = details.get("selected", [])
+                    fk_active_id = details.get("active_id")
+                    
+                    if phase == "init": message = "Initializing Items & Ratios"
+                    elif phase == "sort": message = "Greedy Step: Sorting by Value/Weight Ratio (Descending)"
+                    elif phase == "check": message = f"Checking Item {fk_active_id}\nCan we add it?"
+                    elif phase == "pick": message = f"Picked Item {fk_active_id} (Full)\nAdded {details.get('fraction', 1.0)*100}% of it."
+                    elif phase == "pick_fraction": message = f"Picked Item {fk_active_id} (Fractional)\nFilled remaining {details.get('fraction', 0.0)*100:.1f}% space."
+                    elif phase == "complete": message = f"COMPLETED!\nTotal Value: {details.get('totalV', 0.0):.2f}"
+
+        # ---------- DRAWING ----------
         if ax_stack:
-            for i, frame in enumerate(reversed(stack)):
-                color = "orange" if i == 0 else "lightblue"
-                ax_stack.text(
-                    0.5, i, frame,
-                    ha='center', va='center',
-                    bbox=dict(boxstyle="round", facecolor=color),
-                    fontsize=11
-                )
-
-            ax_stack.set_title("Call Stack (Space Complexity)")
-            ax_stack.set_xlim(0,1)
-            ax_stack.set_ylim(-1, max(4,len(stack)+1))
-            ax_stack.axis('off')
-
-        # ---------- NODE COLORS ----------
-        colors = []
-        for node in G.nodes:
-            status = node_status.get(node, "normal")
-
-            if status == "split":
-                colors.append("#fff176")   # yellow
-            elif status == "merging":
-                colors.append("#ff8a65")   # orange
-            elif status == "done":
-                colors.append("#81c784")   # green
-            elif status == "cache":
-                colors.append("#ba68c8")   # purple
-            elif status == "explore":
-                colors.append("#64b5f6")  # blue
-            elif status == "invalid":
-                colors.append("#ef5350")  # red
-            elif status == "backtrack":
-                colors.append("#ffb74d")  # orange
-            elif status == "solution":
-                colors.append("#66bb6a")  # green
-            else:
-                colors.append("#90caf9")   # blue
+            for idx, frame in enumerate(reversed(stack)):
+                ax_stack.text(0.5, idx, frame, ha='center', va='center', bbox=dict(boxstyle="round", facecolor="orange" if idx==0 else "lightblue"), fontsize=9)
+            ax_stack.set_title("Call Stack", fontsize=10); ax_stack.axis('off')
 
         if ax_tree:
-            # ---------- DRAW TREE ----------
-            # ---------- UPDATE LABELS WITH RESULTS ----------
-            display_labels = {}
+            edge_colors = []
+            edge_widths = []
+            for u, v in G.edges():
+                if (u,v) == active_edge or (v,u) == active_edge: edge_colors.append("#ef5350"); edge_widths.append(4.0)
+                elif is_kruskal or is_prim:
+                    if (u,v) in [(m[0],m[1]) for m in mst_edges] or (v,u) in [(m[0],m[1]) for m in mst_edges]:
+                        edge_colors.append("#43a047"); edge_widths.append(5.0)
+                    elif (u,v) == mst_active or (v,u) == mst_active: edge_colors.append("#1e88e5"); edge_widths.append(5.0)
+                    elif (u,v) == mst_reject or (v,u) == mst_reject: edge_colors.append("#e53935"); edge_widths.append(5.0)
+                    else: edge_colors.append("#cfd8dc"); edge_widths.append(1.5)
+                else: edge_colors.append("#cfd8dc"); edge_widths.append(1.5)
 
-            for node in G.nodes:
+            pos = nx.circular_layout(G) if (is_fw or is_dijkstra or is_kruskal or is_prim) else hierarchy_layout(G, list(G.nodes)[0]) if G.nodes else {}
+            if pos:
+                v_count = len(G.nodes)
+                n_size = 2200 if v_count < 6 else 1600 if v_count < 12 else 1000
+                nx.draw_networkx_nodes(G, pos, ax=ax_tree, node_color=[( "#fff176" if node_status.get(n)=="split" else "#66bb6a" if node_status.get(n)=="solution" else "#81c784" if node_status.get(n)=="done" else "#64b5f6" if node_status.get(n)=="explore" else "#ef5350" if node_status.get(n)=="invalid" else "#90caf9") for n in G.nodes], node_size=n_size)
+                nx.draw_networkx_labels(G, pos, labels={n: labels.get(n, str(n)) for n in G.nodes}, ax=ax_tree, font_size=9, font_weight='bold')
+                nx.draw_networkx_edges(G, pos, ax=ax_tree, edge_color=edge_colors, width=edge_widths, arrows=not (is_kruskal or is_prim), alpha=0.8)
+            if (is_fw or is_dijkstra or is_kruskal or is_prim) and pos:
+                edge_labels = nx.get_edge_attributes(G, 'weight')
+                nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, ax=ax_tree, font_size=8)
+            ax_tree.set_title("ALGORITHM VISUALIZATION", fontsize=11, fontweight='bold', pad=10)
+            ax_tree.axis('off')
 
-                original = labels[node]
-                result = node_result.get(node)
+        if is_nqueens and ax_board:
+            n = len(board_state) if board_state else 0
+            for r in range(n):
+                for c in range(n):
+                    col = "#ef5350" if invalid_cell==(r,c) else "#f0d9b5" if (r+c)%2==0 else "#b58863"
+                    ax_board.add_patch(plt.Rectangle((c,r), 1, 1, color=col))
+                    if current_cell == (r,c): ax_board.add_patch(plt.Rectangle((c,r), 1, 1, fill=False, edgecolor="blue", linewidth=2))
+                    if board_state[r] == c: ax_board.text(c+0.5, r+0.5, "Q", ha="center", va="center", fontsize=16, fontweight='bold')
+            if n > 0:
+                ax_board.set_xlim(0,n); ax_board.set_ylim(n,0)
+            ax_board.axis('off')
 
-                if result is not None:
-                    display_labels[node] = f"{original}\n↓\n{result}"
-                else:
-                    display_labels[node] = original
+        if is_tsp and ax_tree and tsp_coords:
+            ax_tree.clear()
+            ax_tree.set_title("TSP CITY GRAPH", fontsize=12, fontweight='bold', pad=15)
+            
+            # 1. Draw All Possible Edges (Light)
+            for i in range(tsp_n):
+                for j in range(i+1, tsp_n):
+                    c1, c2 = tsp_coords[i], tsp_coords[j]
+                    ax_tree.plot([c1[0], c2[0]], [c1[1], c2[1]], color='#eeeeee', lw=0.5, zorder=1)
+            
+            # 2. Draw Best Path Found So Far (Green)
+            if len(tsp_best_path) > 1:
+                for i in range(len(tsp_best_path)-1):
+                    u, v = tsp_best_path[i], tsp_best_path[i+1]
+                    c1, c2 = tsp_coords[u], tsp_coords[v]
+                    ax_tree.plot([c1[0], c2[0]], [c1[1], c2[1]], color='#c8e6c9', lw=4, ls='--', zorder=2)
 
-            if len(G.nodes) > 0:
-
-                # find correct root dynamically
-                roots = [n for n in G.nodes if G.in_degree(n) == 0]
-                root = roots[0] if roots else list(G.nodes)[0]
-
-                pos = hierarchy_layout(G, root)
-
-                # ensure only valid nodes are drawn
-                valid_nodes = [n for n in G.nodes if n in pos]
-
-                subG = G.subgraph(valid_nodes)
-
-                sub_labels = {k: display_labels[k] for k in valid_nodes}
-                sub_colors = [colors[list(G.nodes).index(k)] for k in valid_nodes]
-
-                nx.draw(
-                    subG,
-                    pos,
-                    labels=sub_labels,
-                    node_color=sub_colors,
-                    node_size=3200,
-                    arrows=False,
-                    ax=ax_tree
-                )
-
-            ax_tree.set_title("Recursion Tree (Algorithm Logic)")
-            if algo_name == "knapsack":
-                ax_tree.set_title("DP does not use recursion tree")
-
-        # fig.suptitle(message, fontsize=14, color="darkgreen")
-        fig.suptitle(f"[Step {step_index}] {message}", fontsize=14, color="darkgreen")
-        fig.canvas.draw_idle()
-
-        
-        # # ---------- DRAW ARRAY (MERGE SORT) ----------
-
-        # if is_mergesort:
-
-        #     ax_array.clear()
-        #     ax_array.set_title("Array Visualization")
-
-        #     if array_state:
-
-        #         values = array_state
-        #         x = list(range(len(values)))
-
-        #         ax_array.bar(x, values)
-
-        #         ax_array.set_xticks(x)
-        #         ax_array.set_xticklabels(values)
-
-        #         ax_array.set_ylim(0, max(values) + 2)
-
-        #     ax_array.axis("on")
-
-        # ---------- DRAW CHESSBOARD ----------
-
-        if is_nqueens:
-
-            ax_board.clear()
-            ax_board.set_title("Chessboard")
-
-            if board_state is not None:
-
-                n = len(board_state)
-
-                for r in range(n):
-                    for c in range(n):
-
-                        base_color = "#f0d9b5" if (r+c)%2==0 else "#b58863"
-
-                        # highlight invalid cell
-                        if invalid_cell == (r, c):
-                            color = "#ef5350"  # red
-                        else:
-                            color = base_color
-
-                        ax_board.add_patch(
-                            plt.Rectangle((c, r), 1, 1, color=color)
-                        )
-
-                        # highlight current cell (blue border)
-                        if current_cell == (r, c):
-                            ax_board.add_patch(
-                                plt.Rectangle(
-                                    (c, r), 1, 1,
-                                    fill=False,
-                                    edgecolor="blue",
-                                    linewidth=3
-                                )
-                            )
-
-                        # draw queen
-                        if board_state[r] == c:
-                            ax_board.text(
-                                c+0.5, r+0.5, "Q",
-                                ha="center",
-                                va="center",
-                                fontsize=18,
-                                color="black"
-                            )
-
-                ax_board.set_xlim(0, n)
-                ax_board.set_ylim(n, 0)
-
-            ax_board.axis("off")
-
-
-        # ---------- DRAW DP TABLE ----------
-        # ---------- DRAW DP TABLE ----------
-        if has_dp and ax_dp is not None:
-
-            ax_dp.clear()
-            ax_dp.set_title("Dynamic Programming Table")
-            ax_dp.axis("off")
-
-            if dp_table is not None:
-
-                # 🔥 CASE 1 → Knapsack / 2D DP (LIST)
-                if isinstance(dp_table, list):
-                    # 🔥 CASE A → 1D DP (LIS)
-                    if all(not isinstance(x, list) for x in dp_table):
-
-                        table_data = [dp_table]
-
-                        col_labels = [f"i={i}" for i in range(len(dp_table))]
-
-                        table = ax_dp.table(
-                            cellText=[dp_table],
-                            colLabels=col_labels,
-                            loc="center",
-                            cellLoc="center",
-                            bbox=[0, 0.3, 1, 0.4]
-                        )
-
-                        table.auto_set_font_size(False)
-                        table.set_fontsize(12)
-
-                        # highlight current index
-                        if dp_cell:
-                            _, i = dp_cell
-                            if i < len(dp_table):
-                                table[(1, i)].set_facecolor("#ffeb3b")
-                        
-                        for _, j in dp_dependencies:
-                            if j < len(dp_table):
-                                table[(1, j)].set_facecolor("#90caf9")
-
-                    # 🔥 CASE B → 2D DP (Knapsack)
-                    else:
-
-                        rows = len(dp_table)
-                        cols = len(dp_table[0]) if rows > 0 else 0
-
-                        row_labels = [f"i={i}" for i in range(len(dp_table))]
-                        col_labels = [f"w={j}" for j in range(len(dp_table[0]))]
-
-                        table = ax_dp.table(
-                            cellText=dp_table,
-                            rowLabels=row_labels,
-                            colLabels=col_labels,
-                            loc="center",
-                            cellLoc="center",
-                            bbox=[0.1, 0.1, 0.9, 0.8]
-                        )
-
-                        table.auto_set_font_size(False)
-                        table.set_fontsize(10)
-
-                        # highlight current cell
-                        if dp_cell:
-                            i, w = dp_cell
-                            if i < rows and w < cols:
-                                table[(i + 1, w)].set_facecolor("#ffeb3b")
-                        
-                        for di, dj in dp_dependencies:
-                            if 0 <= di < rows and 0 <= dj < cols:
-                                table[(di+1, dj)].set_facecolor("#90caf9")
+            # 3. Draw Current Exploration Path (Blue)
+            if len(tsp_path) > 1:
+                for i in range(len(tsp_path)-1):
+                    u, v = tsp_path[i], tsp_path[i+1]
+                    c1, c2 = tsp_coords[u], tsp_coords[v]
+                    ax_tree.plot([c1[0], c2[0]], [c1[1], c2[1]], color='#1e88e5', lw=2.5, zorder=3)
+            
+            # 4. Draw Nodes
+            for i, (x, y) in enumerate(tsp_coords):
+                color = '#ffffff'
+                edge = '#000000'
+                if i == 0: color = '#fff9c4'; edge = '#fbc02d' # Start Node
+                if i == tsp_active_id: color = '#ff8a65'; edge = '#e64a19' # Active
                 
-                # 🔥 CASE → Fibonacci DP (DICT)
-                elif isinstance(dp_table, dict):
+                ax_tree.scatter(x, y, s=500, color=color, edgecolor=edge, linewidth=2, zorder=5)
+                ax_tree.text(x, y, str(i), ha='center', va='center', fontsize=12, fontweight='bold', zorder=6)
 
-                    keys = sorted(dp_table.keys())
-                    values = [dp_table[k] for k in keys]
+            ax_tree.axis('off')
+            ax_tree.set_aspect('equal')
 
-                    ax_dp.clear()
-                    ax_dp.set_title("Fibonacci DP Progression", fontsize=14)
-                    #  draw boxes
-                    for i, k in enumerate(keys):
-                        x = i
-
-                        # highlight current computation
-                        if dp_cell and k == dp_cell[1]:
-                            color = "#ffeb3b"  # yellow highlight
-                        else:
-                            color = "#90caf9"  # blue
-
-                        # draw box
-                        ax_dp.add_patch(
-                            plt.Rectangle((x, 0), 1, 1, color=color, ec="black")
-                        )
-
-                        # value
-                        ax_dp.text(
-                            x + 0.5, 0.5,
-                            str(dp_table[k]),
-                            ha="center",
-                            va="center",
-                            fontsize=14
-                        )
-
-                        # label (n index)
-                        ax_dp.text(
-                            x + 0.5, -0.3,
-                            f"n={k}",
-                            ha="center",
-                            fontsize=10
-                        )
-
-                    ax_dp.set_xlim(0, len(keys))
-                    ax_dp.set_ylim(-1, 1.5)
-                    ax_dp.axis("off")
+        if ax_dp and dp_table is not None:
+            if isinstance(dp_table, list) and len(dp_table) > 0:
+                data = dp_table if isinstance(dp_table[0], list) else [dp_table]
             else:
-                ax_dp.axis("off") 
+                data = [[str(dp_table)]]
+            
+            # Determine labels based on algorithm
+            row_labels = None
+            col_labels = None
+            
+            if algo_name == "knapsack":
+                row_labels = [f"I{i}" for i in range(len(data))]
+                col_labels = [str(j) for j in range(len(data[0]))]
+            elif algo_name == "lcs":
+                s1 = next((e["args"].get("s1", "") for e in events if e["func"] == "lcs"), "")
+                s2 = next((e["args"].get("s2", "") for e in events if e["func"] == "lcs"), "")
+                row_labels = ["Ø"] + list(s1)
+                col_labels = ["Ø"] + list(s2)
+            elif algo_name == "lis":
+                col_labels = [str(i) for i in range(len(data[0]))]
+                row_labels = ["Len"]
+            elif algo_name in ["floyd_warshall", "obst"]:
+                row_labels = [str(i) for i in range(len(data))]
+                col_labels = [str(i) for i in range(len(data[0]))]
+            elif algo_name in ["dijkstra", "prim"]:
+                row_labels = ["W" if algo_name == "prim" else "D"]
+                col_labels = [str(i) for i in range(len(data[0]))]
 
-        elif ax_dp is not None:
-            ax_dp.axis("off")
+            tab = ax_dp.table(
+                cellText=[["∞" if x==float('inf') else str(x) for x in row] for row in data],
+                rowLabels=row_labels,
+                colLabels=col_labels,
+                loc='center', 
+                cellLoc='center'
+            )
+            tab.auto_set_font_size(False); tab.set_fontsize(9)
+            tab.scale(1.1, 1.8)
+            
+            if dp_cell:
+                r, c = dp_cell
+                if r < len(data) and c < len(data[0]): tab[(r, c)].set_facecolor("#fff176")
+            for r, c in dp_dependencies:
+                if 0 <= r < len(data) and 0 <= c < len(data[0]): tab[(r, c)].set_facecolor("#e3f2fd")
+            ax_dp.set_title("STATE / DP TABLE", fontsize=10, fontweight='bold')
+            ax_dp.axis('off')
+            
+        if is_fk and ax_dp:
+            # Item Table
+            table_data = []
+            row_colors = []
+            for it in fk_items:
+                # Determine color
+                color = "#ffffff"
+                if it["id"] == fk_active_id: color = "#fff9c4" # Active
+                elif any(s["id"] == it["id"] for s in fk_selected): color = "#c8e6c9" # Taken
+                
+                # Determine percentage taken
+                sel = next((s for s in fk_selected if s["id"] == it["id"]), None)
+                perc = round(sel["fraction"] * 100, 1) if sel else 0
+                
+                table_data.append([
+                    f"Item {it['id']}",
+                    f"{it['w']}",
+                    f"{it['v']}",
+                    f"{it['ratio']:.2f}",
+                    f"{perc}%"
+                ])
+                row_colors.append(color)
+
+            if table_data:
+                tab = ax_dp.table(
+                    cellText=table_data,
+                    colLabels=["Item ID", "Weight", "Value", "Ratio (V/W)", "% Taken"],
+                    loc="center",
+                    cellLoc="center"
+                )
+                tab.auto_set_font_size(False)
+                tab.set_fontsize(9)
+                tab.scale(1.2, 2.5)
+                # Apply row colors
+                for i in range(len(table_data)):
+                    for j in range(5):
+                        tab[(i+1, j)].set_facecolor(row_colors[i])
+                ax_dp.set_title("GREEDY ITEM SELECTION", fontsize=11, fontweight='bold')
+                ax_dp.axis('off')
+            else:
+                ax_dp.clear()
+                ax_dp.text(0.5, 0.5, "Initializing items...", ha="center", va="center", fontsize=12, color="gray")
+                ax_dp.axis('off')
+
+        # 4. Knapsack Meter (Top Right)
+        if is_fk and ax_stack and fk_items:
+            ax_stack.clear()
+            ax_stack.set_title(f"Capacity Usage: {round(fk_current_w, 1)} / {fk_capacity}", pad=10)
+            ax_stack.barh(0, fk_capacity, color="#eeeeee", height=0.4, label="Remaining Capacity")
+            ax_stack.barh(0, fk_current_w, color="#4caf50", height=0.4, label="Filled")
+            ax_stack.set_xlim(0, fk_capacity)
+            ax_stack.set_yticks([])
+            ax_stack.legend(loc="upper right", fontsize=8)
+
         if ax_info:
             ax_info.clear()
-            ax_info.set_title("Explanation")
+            # Fetch Metadata
+            meta = ALGO_METADATA.get(events[0]["func"], {})
+            name = meta.get("name", events[0]["func"].upper())
+            complexity = meta.get("complexity", "N/A")
+            formula = meta.get("formula", "N/A")
+            
+            # Phase Explanation
+            phase_map = meta.get("phases", {})
+            current_explanation = phase_map.get(phase, phase_map.get("default", f"Executing phase: {phase}")) if phase else "Initializing algorithm..."
+            
+            # 1. Header Information (Top Left)
+            ax_info.text(0.01, 0.95, f"ALGORITHM: {name}\nCOMPLEXITY: {complexity}", 
+                         fontsize=11, fontweight='bold', color="#1b5e20", va='top')
+            
+            # 2. Formula Box (Top Right)
+            formula_text = f"MODEL / FORMULA:\n{formula}"
+            ax_info.text(0.99, 0.95, formula_text, fontsize=10, fontweight='bold', color="#b71c1c", 
+                         va='top', ha='right', bbox=dict(boxstyle="round,pad=0.3", facecolor="#ffebee", alpha=0.8, edgecolor="#ef9a9a"))
+            
+            # 3. Dynamic Step Status (Center-Left)
+            status_text = f"STEP {step_index + 1}: {message.upper()}\n\n➤ EXPLANATION: {current_explanation}"
+            if (is_dijkstra or is_prim) and dijkstra_pq:
+                status_text += "\n\nPRIORITY QUEUE: " + ", ".join([f"({w},{n})" for w,n in sorted(dijkstra_pq)])
+            
+            ax_info.text(0.01, 0.60, status_text, fontsize=11, wrap=True, va='top', fontfamily='sans-serif', 
+                         bbox=dict(boxstyle="round,pad=0.5", facecolor="#fff9c4", alpha=0.9, edgecolor="#fbc02d"))
 
-            extra = ""
-
-            if dp_dependencies:
-                extra = "\nUsing previous states: \n"
-                for d in dp_dependencies:
-                    extra += f"{d}\n"
-                    
-            ax_info.text(
-                0.05, 0.95,
-                message + "\n" + extra,
-                fontsize = 12,
-                wrap=True,
-                va='top'
-            )
+            # 4. Legend (Bottom Right)
+            legend_elements = []
+            if is_kruskal or is_prim: 
+                legend_elements = [Patch(facecolor='#1e88e5', label='Active'), Patch(facecolor='#43a047', label='MST'), 
+                                 Patch(facecolor='#e53935', label='Cycle'), Patch(facecolor='#cfd8dc', label='Other')]
+            elif is_dijkstra: 
+                legend_elements = [Patch(facecolor='#64b5f6', label='Current'), Patch(facecolor='#81c784', label='Done'), 
+                                 Patch(facecolor='#fff176', label='Neighbor'), Patch(facecolor='#ef5350', label='Relaxing')]
+            elif is_fw: 
+                legend_elements = [Patch(facecolor='#fff176', label='Node I'), Patch(facecolor='#66bb6a', label='Node J'), 
+                                 Patch(facecolor='#64b5f6', label='Node K')]
+            
+            if legend_elements: 
+                ax_info.legend(handles=legend_elements, loc='lower right', title="Color Legend", fontsize=8, frameon=True)
 
             ax_info.axis("off")
 
+        fig.suptitle(f"[Algorithm Step {step_index + 1}] - {algo_name.upper()}", fontsize=14, color="#2e7d32", fontweight='bold', y=0.98)
+        plt.subplots_adjust(left=0.05, right=0.95, top=0.92, bottom=0.08, wspace=0.25, hspace=0.3)
+        fig.canvas.draw_idle()
 
     def on_key(event):
         nonlocal step_index
-
-        if event.key == " ":
-            step_index = min(step_index + 1, len(events)-1)
-            draw_step()
-
-        elif event.key == "b":
-            step_index = max(step_index - 1, 0)
-            draw_step()
-
-        elif event.key == "q":
-            plt.close()
+        if event.key == " ": step_index = min(step_index + 1, len(events)-1); draw_step()
+        elif event.key == "b": step_index = max(step_index - 1, 0); draw_step()
+        elif event.key == "q": plt.close()
 
     fig.canvas.mpl_connect('key_press_event', on_key)
-
     draw_step()
     plt.show()
-
 
 def hierarchy_layout(G, root, width=1., vert_gap=0.25, vert_loc=0, xcenter=0.5):
     pos = {root:(xcenter,vert_loc)}
     neighbors = list(G.neighbors(root))
-
     if neighbors:
         dx = width/len(neighbors)
         nextx = xcenter - width/2 - dx/2
         for neighbor in neighbors:
             nextx += dx
-            pos.update(
-                hierarchy_layout(
-                    G, neighbor,
-                    width=dx,
-                    vert_gap=vert_gap,
-                    vert_loc=vert_loc-vert_gap,
-                    xcenter=nextx
-                )
-            )
+            pos.update(hierarchy_layout(G, neighbor, width=dx, vert_gap=vert_gap, vert_loc=vert_loc-vert_gap, xcenter=nextx))
     return pos

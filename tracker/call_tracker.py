@@ -54,9 +54,35 @@ class CallTracker:
             "details": details
         })
 
-    def record_phase(self, phase, details=None):
-        self.events.append({
+    def record_phase(self, phase, message="", i=None, j=None, k=None, 
+                     active_nodes=None, active_edges=None, active_cells=None, 
+                     dependency_cells=None, visual=None, state=None):
+        """
+        Enforced 10/10 Schema for the Web UI.
+        Separates logical data from visual highlighting directives.
+        Supports both individual arguments and a 'visual' dictionary.
+        """
+        # If a 'visual' dict is passed, it takes precedence for those fields
+        nodes = (visual.get("nodes") if visual else None) or active_nodes or []
+        edges = (visual.get("active_edges") if visual else None) or active_edges or []
+        cells = (visual.get("active_cells") if visual else None) or active_cells or []
+        dep_cells = (visual.get("dependency_cells") if visual else None) or dependency_cells or []
+
+        event = {
             "type": "phase",
             "phase": phase,
-            "details": details or {}
-        })
+            "message": message,
+            "data": {
+                "i": i,
+                "j": j,
+                "k": k
+            },
+            "visual": {
+                "nodes": nodes,
+                "active_edges": edges,
+                "active_cells": cells,
+                "dependency_cells": dep_cells
+            },
+            "state": state or {} # Current snapshot (table, visited, etc.)
+        }
+        self.events.append(event)
