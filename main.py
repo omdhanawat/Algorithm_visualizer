@@ -2,7 +2,7 @@ import math
 import random
 from visualizer.combined_view import animate_execution
 
-# --- Import Standardized Algorithms and Trackers ---
+# Import Algorithms and Trackers 
 from algorithms.fibonacci import tracked_fib, get_fib_tracker
 from algorithms.mergesort import tracked_mergesort, get_mergesort_tracker
 from algorithms.quicksort import tracked_quicksort, get_quicksort_tracker

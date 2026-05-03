@@ -59,7 +59,7 @@ ALGO_METADATA = {
     "nQueens": {
         "name": "N-Queens",
         "complexity": "Time: O(N!), Space: O(N)",
-        "formula": "Try placing Queen at (row, col) such that no conflict exists.",
+        "formula": "Place Q(row,col) where no Q shares row, col, or diagonal",
         "strategy": "Backtracking",
         "phases": {
             "check": "Checking if placing Queen at current cell is safe.",
@@ -138,7 +138,7 @@ ALGO_METADATA = {
     "kruskal": {
         "name": "Kruskal's MST",
         "complexity": "Time: O(E log E), Space: O(E)",
-        "formula": "Sort all edges; add edge if no cycle is formed.",
+        "formula": "if find(u) != find(v) → union(u,v), add edge (sorted by weight)",
         "strategy": "Greedy (Minimum Spanning Tree)",
         "phases": {
             "sort": "Sorting all edges by weight in ascending order.",
@@ -150,7 +150,7 @@ ALGO_METADATA = {
     "prim": {
         "name": "Prim's MST",
         "complexity": "Time: O(V^2) or O(E log V), Space: O(V)",
-        "formula": "Add min weight edge connecting MST to remote vertices.",
+        "formula": "key[v] = min(key[v], weight(u,v)) for all unvisited v",
         "strategy": "Greedy (Minimum Spanning Tree)",
         "phases": {
             "pick": "Searching for smallest edge connecting MST to external nodes.",
@@ -162,7 +162,7 @@ ALGO_METADATA = {
     "fractionalKnapsack": {
         "name": "Fractional Knapsack",
         "complexity": "Time: O(n log n), Space: O(n)",
-        "formula": "Take items with highest Value/Weight ratio first.",
+        "formula": "ratio[i] = v[i]/w[i]; greedily take highest ratio items first",
         "strategy": "Greedy",
         "phases": {
             "sort": "Sorting items by their Value/Weight ratio (descending).",
@@ -175,7 +175,7 @@ ALGO_METADATA = {
     "tsp": {
         "name": "Traveling Salesperson Problem",
         "complexity": "Time: O(n!), Space: O(n)",
-        "formula": "Find min(cost(P)) for all permutation P of vertices starting at 0.",
+        "formula": "min Σ dist(path[i], path[i+1]) over all Hamiltonian circuits",
         "strategy": "Backtracking (Branch and Bound)",
         "phases": {
             "init": "Initializing cities and distance matrix.",

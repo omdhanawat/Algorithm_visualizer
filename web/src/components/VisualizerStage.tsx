@@ -204,38 +204,53 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({ events, algoId
 
   const { callStack, treeNodes, activeTreeEdges } = useMemo(() => {
     const stack: any[] = [];
+    // nodeMap for O(1) lookup instead of repeated find()
+    const nodeMap = new Map<string, any>();
     const tNodes: any[] = [];
     const tEdges: any[] = [];
+
     for (let i = 0; i <= index; i++) {
       const e = normalizedEvents[i];
       if (!e) continue;
-      if ((e.type === 'call' || e.raw?.func) && e.raw) {
-        stack.push(e.raw);
-        const label = e.raw.func || 'anonymous';
-        const args = e.raw.args || {};
+
+      // Only process true 'call' type events for the stack/tree
+      if (e.type === 'call' && e.raw) {
+        const raw = e.raw;
+        stack.push(raw);
+        const label = raw.func || 'anonymous';
+        const args = raw.args || {};
         const argsStr = args.n !== undefined ? String(args.n)
           : args.row !== undefined ? `row ${args.row}`
           : args.low !== undefined ? `[${args.low}, ${args.high}]`
           : Array.isArray(args.arr) ? `[${args.arr.join(', ')}]`
           : args.V !== undefined ? `${args.V} nodes`
-          : Object.values(args).map(v => Array.isArray(v) ? `[${v.join(', ')}]` : typeof v === 'object' ? JSON.stringify(v) : String(v)).join(', ');
-        tNodes.push({ id: String(e.raw.id), label: `${label}(${argsStr})`, children: [], isActive: false });
-        if (e.raw.parent !== null && e.raw.parent !== undefined) {
-           tEdges.push({ from: String(e.raw.parent), to: String(e.raw.id) });
-           const pNode = tNodes.find(n => n.id === String(e.raw.parent));
-           if (pNode && !pNode.children.includes(String(e.raw.id))) {
-             pNode.children.push(String(e.raw.id));
-           }
+          : Object.values(args).map((v: any) => Array.isArray(v) ? `[${v.join(', ')}]` : typeof v === 'object' ? JSON.stringify(v) : String(v)).join(', ');
+
+        const node = { id: String(raw.id), label: `${label}(${argsStr})`, children: [] as string[], isActive: false };
+        tNodes.push(node);
+        nodeMap.set(node.id, node);
+
+        if (raw.parent !== null && raw.parent !== undefined) {
+          tEdges.push({ from: String(raw.parent), to: String(raw.id) });
+          const pNode = nodeMap.get(String(raw.parent));
+          if (pNode && !pNode.children.includes(String(raw.id))) {
+            pNode.children.push(String(raw.id));
+          }
         }
+
       } else if (e.type === 'return' && e.raw) {
-        const popped = stack.pop();
-        if (popped) {
-           const node = tNodes.find(n => n.id === String(popped.id));
-           if (node) { node.isResult = true; node.value = e.raw.value; }
-        }
+        // Pop the matching call off the stack (find by id, not blind pop)
+        const returnId = String(e.raw.id);
+        const stackIdx = stack.map((s: any) => String(s.id)).lastIndexOf(returnId);
+        if (stackIdx !== -1) stack.splice(stackIdx, 1);
+
+        // Update the tree node directly using the return's own id
+        const node = nodeMap.get(returnId);
+        if (node) { node.isResult = true; node.value = e.raw.value; }
+
       } else if (e.type === 'phase') {
         const activeFrame = stack[stack.length - 1];
-        const node = activeFrame ? tNodes.find(n => n.id === String(activeFrame.id)) : null;
+        const node = activeFrame ? nodeMap.get(String(activeFrame.id)) : null;
         if (node) {
           const state = e.state || {};
           if (e.phase === 'partition') {
@@ -247,7 +262,9 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({ events, algoId
           } else if (e.phase === 'merge_start') {
             node.detail = `merge [${(state.left || []).join(',')}] + [${(state.right || []).join(',')}]`;
           } else if (e.phase === 'base_case') {
-            node.detail = `base [${(state.arr || state.result || []).join(',')}]`;
+            node.detail = state.result !== undefined ? `= ${state.result}` : `n=${e.indices?.i}`;
+          } else if (e.phase === 'sum_results') {
+            node.detail = state.result !== undefined ? `= ${state.result}` : '';
           } else if (e.phase === 'check_middle') {
             node.detail = `mid ${state.mid}; range [${state.low}, ${state.high}]`;
           } else if (e.phase === 'target_found') {
@@ -256,13 +273,15 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({ events, algoId
         }
       }
     }
+
     const activeFrame = stack[stack.length - 1];
     if (activeFrame) {
-      const activeNode = tNodes.find(n => n.id === String(activeFrame.id));
+      const activeNode = nodeMap.get(String(activeFrame.id));
       if (activeNode) activeNode.isActive = true;
     }
     return { callStack: stack, treeNodes: tNodes, activeTreeEdges: tEdges };
   }, [normalizedEvents, index]);
+
 
   const visualMode = useMemo(() => {
     if (!currentEvent) return 'loading';
@@ -577,13 +596,12 @@ export const VisualizerStage: React.FC<VisualizerStageProps> = ({ events, algoId
                 total={total} 
              />
              
-             {/* Dynamic Formula Overlay */}
-             {(currentEvent?.state?.dp || currentEvent?.state?.cost_matrix) && (
-               <div className="px-6 py-4 border-t border-slate-800/50">
-                 <h3 className="text-xs uppercase tracking-widest text-slate-500 font-bold mb-4">Formula Context</h3>
-                 <FormulaPanel currentEvent={currentEvent} algoId={algoId} />
-               </div>
-             )}
+             {/* Dynamic Formula Overlay — shown for all algorithms */}
+             <div className="px-6 py-4 border-t border-slate-800/50">
+               <h3 className="text-xs uppercase tracking-widest text-slate-500 font-bold mb-4">Formula Context</h3>
+               <FormulaPanel currentEvent={currentEvent} algoId={algoId} />
+             </div>
+
           </div>
           
           {/* Quick Stats / Speed at Bottom of Sidebar */}

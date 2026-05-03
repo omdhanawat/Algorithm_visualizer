@@ -13,7 +13,10 @@ def tracked_lcs(X, Y):
 
     dp = [[0 for _ in range(n + 1)] for _ in range(m + 1)]
 
-    tracker.record_phase("init", message=f"Initialized {m+1}x{n+1} DP table with zeros.", state={"dp": dp})
+    def snapshot():
+        return [row[:] for row in dp]
+
+    tracker.record_phase("init", message=f"Initialized {m+1}x{n+1} DP table with zeros.", state={"dp": snapshot()})
 
     for i in range(1, m + 1):
         for j in range(1, n + 1):
@@ -34,11 +37,11 @@ def tracked_lcs(X, Y):
                     "active_cells": [[i, j]],
                     "dependency_cells": deps
                 },
-                state={"dp": dp}
+                state={"dp": snapshot()}
             )
 
     # Backtracking Phase
-    tracker.record_phase("backtrack_start", message="LCS table complete. Backtracking to reconstruct the string sequence.", state={"dp": dp})
+    tracker.record_phase("backtrack_start", message="LCS table complete. Backtracking to reconstruct the string sequence.", state={"dp": snapshot()})
     
     lcs_str = []
     i, j = m, n
@@ -56,6 +59,6 @@ def tracked_lcs(X, Y):
             j -= 1
 
     final_lcs = "".join(reversed(lcs_str))
-    tracker.record_phase("complete", message=f"LCS reconstruction complete: {final_lcs}.", state={"dp": dp, "lcs": final_lcs})
+    tracker.record_phase("complete", message=f"LCS reconstruction complete: {final_lcs}.", state={"dp": snapshot(), "lcs": final_lcs})
     tracker.record_return(call_id, final_lcs)
     return final_lcs

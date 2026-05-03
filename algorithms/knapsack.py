@@ -13,10 +13,13 @@ def tracked_knapsack(weights, values, capacity):
 
     dp = [[0 for _ in range(capacity + 1)] for _ in range(n + 1)]
 
+    def snapshot():
+        return [row[:] for row in dp]
+
     tracker.record_phase(
         "init", 
         message=f"Initialized DP table ({n+1}x{capacity+1}) with zeros. Rows: Items, Cols: Capacity.", 
-        state={"dp": dp}
+        state={"dp": snapshot()}
     )
 
     for i in range(1, n + 1):
@@ -46,9 +49,9 @@ def tracked_knapsack(weights, values, capacity):
                     "active_cells": [[i, j]],
                     "dependency_cells": deps
                 },
-                state={"dp": dp}
+                state={"dp": snapshot()}
             )
 
-    tracker.record_phase("complete", message=f"Max value for capacity {capacity} is {dp[n][capacity]}.", state={"dp": dp})
+    tracker.record_phase("complete", message=f"Max value for capacity {capacity} is {dp[n][capacity]}.", state={"dp": snapshot()})
     tracker.record_return(call_id, dp[n][capacity])
     return dp[n][capacity]
