@@ -3,22 +3,22 @@ import random
 from visualizer.combined_view import animate_execution
 
 # Import Algorithms and Trackers 
-from algorithms.fibonacci import tracked_fib, get_fib_tracker
-from algorithms.mergesort import tracked_mergesort, get_mergesort_tracker
-from algorithms.quicksort import tracked_quicksort, get_quicksort_tracker
-from algorithms.fibonacci_dp import tracked_fib_dp, get_fib_dp_tracker
-from algorithms.nqueens import tracked_nqueens, get_nqueens_tracker
-from algorithms.binary_search import tracked_binary_search, get_binary_search_tracker
-from algorithms.knapsack import tracked_knapsack, get_knapsack_tracker
-from algorithms.lis import tracked_lis, get_lis_tracker
-from algorithms.lcs import tracked_lcs, get_lcs_tracker
-from algorithms.obst import tracked_obst, get_obst_tracker
-from algorithms.floyd_warshall import tracked_floyd_warshall, get_fw_tracker
-from algorithms.dijkstra import tracked_dijkstra, get_dijkstra_tracker
-from algorithms.kruskal import tracked_kruskal, get_kruskal_tracker
-from algorithms.prim import tracked_prim, get_prim_tracker
-from algorithms.fractional_knapsack import tracked_fractional_knapsack, get_fractional_knapsack_tracker
-from algorithms.tsp import tracked_tsp, get_tsp_tracker
+from api.algorithms.fibonacci import tracked_fib, get_fib_tracker
+from api.algorithms.mergesort import tracked_mergesort, get_mergesort_tracker
+from api.algorithms.quicksort import tracked_quicksort, get_quicksort_tracker
+from api.algorithms.fibonacci_dp import tracked_fib_dp, get_fib_dp_tracker
+from api.algorithms.nqueens import tracked_nqueens, get_nqueens_tracker
+from api.algorithms.binary_search import tracked_binary_search, get_binary_search_tracker
+from api.algorithms.knapsack import tracked_knapsack, get_knapsack_tracker
+from api.algorithms.lis import tracked_lis, get_lis_tracker
+from api.algorithms.lcs import tracked_lcs, get_lcs_tracker
+from api.algorithms.obst import tracked_obst, get_obst_tracker
+from api.algorithms.floyd_warshall import tracked_floyd_warshall, get_fw_tracker
+from api.algorithms.dijkstra import tracked_dijkstra, get_dijkstra_tracker
+from api.algorithms.kruskal import tracked_kruskal, get_kruskal_tracker
+from api.algorithms.prim import tracked_prim, get_prim_tracker
+from api.algorithms.fractional_knapsack import tracked_fractional_knapsack, get_fractional_knapsack_tracker
+from api.algorithms.tsp import tracked_tsp, get_tsp_tracker
 
 def run_fibonacci():
     n = int(input("\nEnter n for Recursive Fibonacci: "))

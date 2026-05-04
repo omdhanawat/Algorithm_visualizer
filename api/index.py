@@ -4,8 +4,8 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import sys
 import os
-# Add the root directory to sys.path so Vercel can find the 'algorithms' module
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add the current api/ directory to sys.path so local uvicorn and Vercel can both find algorithms
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Standardized Algorithm Imports
 from algorithms.fibonacci import tracked_fib, get_fib_tracker
