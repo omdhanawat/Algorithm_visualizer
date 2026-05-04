@@ -2,11 +2,11 @@
   "rewrites": [
     {
       "source": "/solve/(.*)",
-      "destination": "/api/main_api.py"
+      "destination": "/api/index.py"
     },
     {
       "source": "/health",
-      "destination": "/api/main_api.py"
+      "destination": "/api/index.py"
     },
     {
       "source": "/(.*)",
