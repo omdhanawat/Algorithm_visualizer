@@ -44,7 +44,9 @@ export default function App() {
     setError(null);
     
     try {
-      const { data } = await axios.post(`http://localhost:8000/solve/${algoId}`, {
+      const apiUrl = import.meta.env.VITE_API_URL || '';
+      const endpoint = apiUrl ? `${apiUrl}/solve/${algoId}` : `/solve/${algoId}`;
+      const { data } = await axios.post(endpoint, {
         params: paramsObj || {} 
       });
       setEvents(data.events || []);

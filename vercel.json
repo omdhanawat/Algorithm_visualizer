@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/solve/(.*)",
+      "destination": "/api/main_api.py"
+    },
+    {
+      "source": "/health",
+      "destination": "/api/main_api.py"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/web/$1"
+    }
+  ]
+}
