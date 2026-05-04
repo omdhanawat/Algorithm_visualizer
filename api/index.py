@@ -2,6 +2,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
+import sys
+import os
+# Add the root directory to sys.path so Vercel can find the 'algorithms' module
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Standardized Algorithm Imports
 from algorithms.fibonacci import tracked_fib, get_fib_tracker
