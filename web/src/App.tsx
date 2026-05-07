@@ -8,6 +8,7 @@ import {
   PanelLeftOpen, X, Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Analytics } from '@vercel/analytics/react';
 
 import { ParameterForm } from './components/ParameterForm';
 import { VisualizerStage } from './components/VisualizerStage';
@@ -226,6 +227,7 @@ export default function App() {
            )
          )}
       </main>
+      <Analytics />
     </div>
   );
 }
